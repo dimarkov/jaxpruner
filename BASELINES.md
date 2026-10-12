@@ -11,6 +11,103 @@ newest JAX. The rungs are:
 Only files under `jaxpruner/` were changed to get here. Nothing was run on
 ImageNet, C4 or Atari at full scale.
 
+## Environments
+
+Each environment is a git-ignored directory `.venv-*` in the repository root,
+built with [uv](https://docs.astral.sh/uv/) and Python 3.12. The commands below
+are the ones that were run, in this order, from the repository root; every
+command after the first install adds a package that the first install does not
+bring in. Dependencies are not pinned, and scenic and t5x are installed from
+the head of their repositories, so a rebuild on another day can resolve to
+other versions. The versions each framework environment had are in the table
+under [Results](#results).
+
+### Notebook environment (`.venv-nb`)
+
+```bash
+uv venv --python 3.12 .venv-nb
+VIRTUAL_ENV=.venv-nb uv pip install -e ".[test,notebooks]" "jax[cuda12]" tensorflow tensorflow-datasets
+VIRTUAL_ENV=.venv-nb uv pip install importlib_resources
+```
+
+tensorflow-datasets 4.9.10 uses `importlib_resources` without installing it;
+`colabs/mnist_pruning.ipynb` needs it to load MNIST.
+
+Notebooks executed in it: `colabs/quick_start.ipynb`, `colabs/deep_dive.ipynb`,
+`colabs/mnist_pruning.ipynb` and
+`jaxpruner/projects/bigsparse/sparsity-scaling.ipynb`.
+
+### scenic (`.venv-scenic`)
+
+```bash
+uv venv --python 3.12 .venv-scenic
+VIRTUAL_ENV=.venv-scenic uv pip install -e ".[test,notebooks]" "jax[cuda12]" "scenic @ git+https://github.com/google-research/scenic"
+VIRTUAL_ENV=.venv-scenic uv pip install tensorboard
+VIRTUAL_ENV=.venv-scenic uv pip install importlib_resources
+```
+
+scenic resolved to commit `8c113c5` and optax to 0.2.9.dev0 from git.
+`tensorboard` is needed by `clu.metric_writers` and `importlib_resources` by
+tensorflow-datasets.
+
+Notebook executed in it: `colabs/sparse_model_vit.ipynb`.
+
+### fedjax (`.venv-fedjax`)
+
+```bash
+uv venv --python 3.12 .venv-fedjax
+VIRTUAL_ENV=.venv-fedjax uv pip install -e ".[test,notebooks]" "jax[cuda12]" fedjax
+VIRTUAL_ENV=.venv-fedjax uv pip install tensorflow
+VIRTUAL_ENV=.venv-fedjax uv pip install tensorboard
+```
+
+The trainer imports `tensorflow.io.gfile`, and the logger of fedjax calls
+`tf.summary.scalar`, which needs `tensorboard`. For a time the environment held
+fedjax from the head of its repository; it was put back to the PyPI release
+with `VIRTUAL_ENV=.venv-fedjax uv pip install --reinstall-package fedjax "fedjax==0.0.17"`,
+the release that the second command above installs.
+
+Notebook executed in it: `colabs/fedjax_jaxpruner.ipynb`.
+
+### t5x (`.venv-t5x`)
+
+```bash
+uv venv --python 3.12 .venv-t5x
+VIRTUAL_ENV=.venv-t5x uv pip install -e ".[test]" "jax[cuda12]" "t5x @ git+https://github.com/google-research/t5x"
+VIRTUAL_ENV=.venv-t5x uv pip install tensorboard
+VIRTUAL_ENV=.venv-t5x uv pip install --no-deps t5
+VIRTUAL_ENV=.venv-t5x uv pip install babel editdistance immutabledict "mesh-tensorflow[transformer]" nltk pandas rouge-score sacrebleu scikit-learn scipy sentencepiece six transformers
+```
+
+t5x resolved to commit `2045b33`, with flax, optax and seqio from git. t5x
+imports `tensorboard` without declaring it. The gin files import
+`t5.data.mixtures`; `t5` is installed without its dependencies, followed by
+those dependencies by name, because a plain `uv pip install t5` would add
+`seqio-nightly` on top of the `seqio` that t5x installs.
+
+No notebook was executed in it.
+
+### dopamine (`.venv-dopamine`)
+
+```bash
+uv venv --python 3.12 .venv-dopamine
+VIRTUAL_ENV=.venv-dopamine uv pip install -e ".[test]" "jax[cuda12]" dopamine-rl
+VIRTUAL_ENV=.venv-dopamine uv pip install --no-deps baselines==0.1.5
+VIRTUAL_ENV=.venv-dopamine uv pip uninstall tensorflow-probability
+VIRTUAL_ENV=.venv-dopamine uv pip install tfp-nightly tensorboard
+```
+
+dopamine-rl 4.1.2 imports `baselines` without declaring it, and a plain install
+of `baselines` fails to build its pinned `gym==0.21.0`, hence `--no-deps`. The
+released tensorflow-probability 0.25.0 does not import with jax 0.11.2; it is
+uninstalled first because it and `tfp-nightly` own the same package directory.
+The three further installs were added to the existing environment; the
+sequence was not repeated from an empty one.
+
+No notebook was executed in it.
+
+## Results
+
 | Baseline | Rung reached | Versions | Command for the highest rung | What stops the next rung |
 |---|---|---|---|---|
 | `baselines/scenic` | 4 | jax 0.11.2, flax 0.12.10, tensorflow 2.21.0 | `TFDS_DATA_DIR=/tmp/jaxpruner-smoke/tfds-scenic .venv-scenic/bin/python -m jaxpruner.baselines.scenic.main --config=jaxpruner/baselines/scenic/configs/imagenet_resnet_config.py:runlocal --config.dataset_name=cifar10 --config.batch_size=256 --config.num_training_epochs=1 --config.sparsity_config.algorithm=magnitude --config.sparsity_config.update_freq=10 --config.sparsity_config.update_start_step=50 --config.sparsity_config.update_end_step=150 --workdir=/tmp/jaxpruner-smoke/scenic` | — (195 steps, exit 0 in 4 of 4 runs). The environment also needs `tensorboard` and `importlib_resources`, which the install does not pull in. Only the ResNet config was run: `model_name=plainvit` cannot be imported, because the scenic package that pip builds leaves out `scenic/projects/baselines/plainvit`, so `main.py` now imports it only when that model is asked for. |

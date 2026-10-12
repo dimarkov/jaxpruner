@@ -61,6 +61,50 @@ Following script creates a virtual environment, installs the library with its te
 bash run.sh
 ```
 
+## Status of this fork
+
+The test suite (`pytest`, 176 tests) passes with:
+
+| Python | jax | optax | chex | flax | numpy | equinox |
+|---|---|---|---|---|---|---|
+| Python 3.14 | jax 0.11.2 | optax 0.2.8 | chex 0.1.92 | flax 0.12.10 | numpy 2.5.4 | equinox 0.13.8 |
+| Python 3.12 | jax 0.11.2 | optax 0.2.8 | chex 0.1.92 | flax 0.12.10 | numpy 2.5.4 | equinox 0.13.8 |
+
+Notebooks, executed end to end on one GPU:
+
+| Notebook | Result |
+|---|---|
+| `colabs/quick_start.ipynb` | executed |
+| `colabs/deep_dive.ipynb` | executed |
+| `colabs/mnist_pruning.ipynb` | executed |
+| `colabs/sparse_model_vit.ipynb` | executed |
+| `colabs/fedjax_jaxpruner.ipynb` | executed |
+| `jaxpruner/projects/bigsparse/sparsity-scaling.ipynb` | executed |
+
+`quick_start`, `deep_dive`, `mnist_pruning` and `sparsity-scaling` were
+executed in the notebook environment, `sparse_model_vit` in the scenic
+environment and `fedjax_jaxpruner` in the fedjax environment. The commands that
+built each environment are in the section
+[Environments](BASELINES.md#environments) of BASELINES.md.
+
+The baselines under `jaxpruner/baselines` and `jaxpruner/projects` were checked
+at smoke level only; see [BASELINES.md](BASELINES.md).
+
+Changes relative to upstream:
+
+- Parameters may be any PyTree of arrays, not only nested dicts. Sparsity
+  distributions, global pruning and the sparsity summaries name leaves by
+  their dict keys, attribute names and sequence indices, for example
+  `('layers', 0, 'weight')` for an Equinox MLP. Pass a tree that contains
+  arrays only, e.g. `eqx.filter(model, eqx.is_inexact_array)`.
+- `wrap_optax` accepts inner optimizers whose state changes structure during
+  `update`.
+- Block sparsity masks have the shape of their input when the block shape does
+  not divide it.
+- Packaging moved to `pyproject.toml`; Python 3.12 or newer is required and
+  `flax` is only needed for the tests, the notebooks and the scenic and t5x
+  baselines.
+
 ## Quickstart
 See our Quickstart colab:
 [![Quick Start Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/jaxpruner/blob/main/colabs/quick_start.ipynb)
