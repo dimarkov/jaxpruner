@@ -7,7 +7,6 @@ import seqio
 from t5x import decoding
 from t5x import models
 import t5.data.mixtures
-from t5x.examples.decoder_only import network
 from jaxpruner.projects.bigsparse.t5x import decoder_only_network as jp_network
 
 # ------------------- Loss HParam ----------------------------------------------
@@ -43,7 +42,7 @@ models.DecoderOnlyModel:
   loss_normalizing_factor = %LOSS_NORMALIZING_FACTOR
   
 # ------------------- Network specification ------------------------------------
-jp_network.TransformerW.config = @network.TransformerConfig()
+jp_network.TransformerW.config = @jp_network.TransformerConfig()
 jp_network.TransformerW.width = %NETWORK_WIDTH
 
 decoding.temperature_sample:
@@ -51,8 +50,7 @@ decoding.temperature_sample:
   topk = 40
 
 # ------------------- Network specification ------------------------------------
-network.DecoderWrapper.config = @network.TransformerConfig()
-network.TransformerConfig:
+jp_network.TransformerConfig:
   vocab_size = 32128  # vocab size rounded to a multiple of 128 for TPU efficiency
   dtype = 'bfloat16'
   emb_dim = 768
