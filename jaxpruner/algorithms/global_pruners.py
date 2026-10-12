@@ -17,13 +17,12 @@
 import dataclasses
 from typing import Optional, Dict
 
-import chex
-import flax
 import jax
 import jax.numpy as jnp
 from jaxpruner import base_updater
 from jaxpruner import sparsity_distributions
 from jaxpruner import sparsity_types
+from jaxpruner import tree_paths
 from jaxpruner.algorithms import pruners
 
 
@@ -80,39 +79,32 @@ class GlobalPruningMixin:
       else:
         return score
 
-    flat_scores = flax.traverse_util.flatten_dict(scores)
-    filtered_scores = {
-        k: _maybe_normalize(score)
-        for k, score in flat_scores.items()
-        if _unified_filter_fn(k, score)
-    }
-    ordered_keys = sorted(filtered_scores.keys())
+    # Leaves come in the canonical JAX order, which for dicts is sorted by key.
+    named_scores, treedef = tree_paths.flatten_with_names(scores)
+    is_global = [_unified_filter_fn(k, score) for k, score in named_scores]
 
-    filtered_scores_concat = jnp.concatenate(
-        [filtered_scores[k] for k in ordered_keys], axis=None
-    )
-
-    flat_mask_concat = self.topk_fn(filtered_scores_concat, target_sparsity)
-    res_dict = {}
+    filtered_scores = [
+        _maybe_normalize(score)
+        for (_, score), use in zip(named_scores, is_global)
+        if use
+    ]
+    # The custom sparsity map may cover every leaf that passes the filter.
+    if filtered_scores:
+      filtered_scores_concat = jnp.concatenate(filtered_scores, axis=None)
+      flat_mask_concat = self.topk_fn(filtered_scores_concat, target_sparsity)
+    masks = []
     cur_index = 0
-    for k in ordered_keys:
-      param = filtered_scores[k]
-      next_index = cur_index + param.size
-      flat_mask = flat_mask_concat[cur_index:next_index]
-      res_dict[k] = jnp.reshape(flat_mask, param.shape)
-      cur_index = next_index
-
-    for k, score in flat_scores.items():
-      if k in ordered_keys:
-        pass
+    for (k, score), use in zip(named_scores, is_global):
+      if use:
+        next_index = cur_index + score.size
+        flat_mask = flat_mask_concat[cur_index:next_index]
+        masks.append(jnp.reshape(flat_mask, score.shape))
+        cur_index = next_index
       elif k in custom_sparsity_map:
-        res_dict[k] = self.topk_fn(score, custom_sparsity_map[k])
+        masks.append(self.topk_fn(score, custom_sparsity_map[k]))
       else:
-        res_dict[k] = None
-    return_val = flax.traverse_util.unflatten_dict(res_dict)
-    if isinstance(scores, flax.core.frozen_dict.FrozenDict):
-      return_val = flax.core.freeze(return_val)
-    return return_val
+        masks.append(None)
+    return jax.tree_util.tree_unflatten(treedef, masks)
 
 
 @dataclasses.dataclass

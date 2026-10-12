@@ -15,14 +15,22 @@
 
 """Tests for global pruning algorithms."""
 import dataclasses
+from typing import NamedTuple
 
 from absl.testing import absltest
 from absl.testing import parameterized
 
 import chex
+import equinox as eqx
+import flax
 import jax
 import jax.numpy as jnp
 from jaxpruner.algorithms import global_pruners
+
+
+class _Pair(NamedTuple):
+  first: jax.Array
+  second: jax.Array
 
 
 @dataclasses.dataclass
@@ -70,6 +78,47 @@ class GlobalPrunerTest(parameterized.TestCase, absltest.TestCase):
     chex.assert_trees_all_close(
         pruned_params, {'w': jnp.array([1.0, 2.0, 0.0, 0.0])}
     )
+
+  def testGlobalPruningKeepsTreeType(self):
+    updater = global_pruners.GlobalMagnitudePruning(
+        filter_fn=lambda *_: True, sparsity=0.5
+    )
+    w, w2 = jnp.array([0.1, 0.9, -0.2, 0.5]), jnp.array([0.7, 0.8])
+    mask, mask2 = jnp.array([0, 1, 0, 0]), jnp.array([1, 1])
+    for score_tree, expected_tree in (
+        ([w, w2], [mask, mask2]),
+        (_Pair(first=w, second=w2), _Pair(first=mask, second=mask2)),
+        (
+            flax.core.freeze({'w': w, 'w2': w2}),
+            flax.core.freeze({'w': mask, 'w2': mask2}),
+        ),
+    ):
+      masks = updater.create_masks(score_tree, target_sparsity=0.5)
+      self.assertIs(type(masks), type(score_tree))
+      chex.assert_trees_all_close(masks, expected_tree)
+
+  def testFilterAndCustomMapUseLeafNames(self):
+    mlp = eqx.nn.MLP(4, 2, 8, 1, key=jax.random.PRNGKey(0))
+    params = eqx.filter(mlp, eqx.is_inexact_array)
+    updater = global_pruners.GlobalMagnitudePruning(
+        sparsity=0.5, custom_sparsity_map={('layers', 1, 'weight'): 0.25}
+    )
+    masks = updater.create_masks(params, target_sparsity=0.5)
+    # One dimensional leaves are filtered out by default.
+    self.assertIsNone(masks.layers[0].bias)
+    self.assertIsNone(masks.layers[1].bias)
+    # The only leaf left for the global ranking gets the global sparsity.
+    self.assertEqual(float(jnp.mean(masks.layers[0].weight)), 0.5)
+    self.assertEqual(float(jnp.mean(masks.layers[1].weight)), 0.75)
+
+  def testCustomMapMayCoverEveryPrunableLeaf(self):
+    updater = global_pruners.GlobalMagnitudePruning(
+        sparsity=0.5, custom_sparsity_map={('w',): 0.5}
+    )
+    score_tree = {'w': jnp.array([[0.1, 0.9], [-0.2, 0.5]]), 'b': jnp.ones(2)}
+    masks = updater.create_masks(score_tree, target_sparsity=0.5)
+    chex.assert_trees_all_close(masks['w'], jnp.array([[0, 1], [0, 1]]))
+    self.assertIsNone(masks['b'])
 
 
 if __name__ == '__main__':
