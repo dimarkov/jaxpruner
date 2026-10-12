@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jaxpruner"
+version = "0.2.0"
+description = "JaxPruner: A concise library for sparsity research"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{name = "Google", email = "jaxpruner-dev@google.com"}]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "chex",
+    "flax",
+    "jax",
+    "ml-collections",
+    "numpy",
+    "optax",
+]
+
+[project.optional-dependencies]
+test = ["absl-py", "equinox", "pytest"]
+notebooks = ["ipykernel", "matplotlib", "nbconvert", "pandas", "scipy"]
+
+[project.urls]
+Homepage = "https://github.com/google-research/jaxpruner"
+
+[tool.setuptools.packages.find]
+include = ["jaxpruner*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["jaxpruner"]
+python_files = ["*_test.py"]
+pythonpath = ["."]

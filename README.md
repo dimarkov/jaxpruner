@@ -43,17 +43,19 @@ pruner = jaxpruner.MagnitudePruning(is_packed=True) # Line 1: Reduces mask overh
 You can install *JaxPruner* using pip directly from the source. 
 
 ```bash
-pip3 install 
+pip3 install git+https://github.com/dimarkov/jaxpruner
 ```
+
+This is a fork of [google-research/jaxpruner](https://github.com/google-research/jaxpruner) kept working on current JAX. It needs Python 3.12 or newer.
 
 Alternatively you can also clone the source and run tests using the run.sh script.
 
 ```bash
-git clone https://github.com/google-research/jaxpruner.git
+git clone https://github.com/dimarkov/jaxpruner.git
 cd jaxpruner
 ```
 
-Following script creates a virtual environment and installs the necessary libraries. Finally, it runs the tests.
+Following script creates a virtual environment, installs the library with its test dependencies and runs the tests with `pytest`.
 
 ```bash
 bash run.sh

@@ -17,17 +17,8 @@
 set -e
 set -x
 
-virtualenv -p python3 env
+python3 -m venv env
 source env/bin/activate
 
-pip install -r requirements.txt
-python -m jaxpruner.base_updater_test
-python -m jaxpruner.mask_calculator_test
-python -m jaxpruner.sparsity_distributions_test
-python -m jaxpruner.sparsity_schedules_test
-python -m jaxpruner.base_updater_test
-python -m jaxpruner.utils_test
-python -m jaxpruner.algorithms.global_pruners_test
-python -m jaxpruner.algorithms.pruners_test
-python -m jaxpruner.algorithms.sparse_trainers_test
-python -m jaxpruner.algorithms.ste_test
+pip install -e ".[test]"
+pytest
