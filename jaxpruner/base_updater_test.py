@@ -14,13 +14,17 @@
 # limitations under the License.
 
 """Tests for the Sparsity updater classes in base_updater.py."""
+import dataclasses
 import functools
+from typing import NamedTuple, Optional
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 import chex
+import jax
 import jax.numpy as jnp
+import optax
 from jaxpruner import base_updater
 from jaxpruner import sparsity_distributions
 from jaxpruner import sparsity_schedules
@@ -146,6 +150,119 @@ class BaseUpdaterTest(parameterized.TestCase, absltest.TestCase):
     )
     # Test if custom topk_fn is not overrided.
     self.assertEqual(sparse_updater.topk_fn, _mock_topk_fn)
+
+
+class _TransientState(NamedTuple):
+  """Inner state with a field that is only set between two updates."""
+
+  count: chex.Array
+  scratch: Optional[chex.ArrayTree] = None
+
+
+def _transient_optimizer(grow=False):
+  """An optimizer whose update adds `state.scratch` to the gradients.
+
+  Args:
+    grow: If False, `update` clears `scratch`, so the state it returns has a
+      different pytree structure than the state it was given. If True, `update`
+      sets `scratch` although it was not set before.
+
+  Returns:
+    An optax gradient transformation.
+  """
+
+  def init_fn(params):
+    del params
+    return _TransientState(count=jnp.zeros([], jnp.int32))
+
+  def update_fn(updates, state, params=None):
+    del params
+    if grow:
+      return updates, _TransientState(count=state.count + 1, scratch=updates)
+    updates = jax.tree.map(lambda u, s: u + s, updates, state.scratch)
+    return updates, _TransientState(count=state.count + 1)
+
+  return optax.GradientTransformation(init_fn, update_fn)
+
+
+@dataclasses.dataclass
+class _MagnitudeUpdater(base_updater.BaseUpdater):
+
+  def calculate_scores(self, params, sparse_state=None, grads=None):
+    del sparse_state, grads
+    return jax.tree.map(jnp.abs, params)
+
+
+def _magnitude_updater(skip_gradients):
+  return _MagnitudeUpdater(
+      scheduler=sparsity_schedules.PeriodicSchedule(
+          update_freq=2, update_start_step=2, update_end_step=4
+      ),
+      sparsity_distribution_fn=functools.partial(
+          sparsity_distributions.uniform, sparsity=0.5
+      ),
+      skip_gradients=skip_gradients,
+  )
+
+
+class WrapOptaxInnerStateTest(parameterized.TestCase, absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.params = {'w': jnp.array([[1.0, -2.0], [3.0, -4.0]])}
+    self.grads = {'w': jnp.ones((2, 2))}
+
+  @parameterized.parameters(False, True)
+  def testInnerStateStructureMayChangeDuringUpdate(self, skip_gradients):
+    updater = _magnitude_updater(skip_gradients)
+    tx = updater.wrap_optax(_transient_optimizer())
+    update = jax.jit(tx.update)
+    state = tx.init(self.params)
+    num_inner_updates = 0
+    for step in range(6):
+      is_update_step = bool(updater.scheduler.is_mask_update_iter(step))
+      inner_state = state.inner_state._replace(scratch=self.grads)
+      state = state._replace(inner_state=inner_state)
+      updates, state = update(self.grads, state, self.params)
+      self.assertIsNone(state.inner_state.scratch)
+      if skip_gradients and is_update_step:
+        chex.assert_trees_all_close(updates, {'w': jnp.zeros((2, 2))})
+      else:
+        num_inner_updates += 1
+        chex.assert_trees_all_close(updates, {'w': 2 * jnp.ones((2, 2))})
+      self.assertEqual(int(state.inner_state.count), num_inner_updates)
+    self.assertEqual(num_inner_updates, 4 if skip_gradients else 6)
+
+  @parameterized.product(
+      skip_gradients=[False, True],
+      make_inner=[lambda: optax.sgd(0.1, momentum=0.9), lambda: optax.adam(0.1)],
+  )
+  def testOptaxOptimizersMatchReference(self, skip_gradients, make_inner):
+    updater = _magnitude_updater(skip_gradients)
+    inner = make_inner()
+    tx = updater.wrap_optax(inner)
+    state = tx.init(self.params)
+    expected_inner_state = inner.init(self.params)
+    for step in range(6):
+      is_update_step = bool(updater.scheduler.is_mask_update_iter(step))
+      if skip_gradients and is_update_step:
+        expected_updates = {'w': jnp.zeros((2, 2))}
+      else:
+        expected_updates, expected_inner_state = inner.update(
+            self.grads, expected_inner_state, self.params
+        )
+      updates, state = tx.update(self.grads, state, self.params)
+      chex.assert_trees_all_close(updates, expected_updates)
+      chex.assert_trees_all_close(state.inner_state, expected_inner_state)
+      chex.assert_trees_all_equal_dtypes(state.inner_state, expected_inner_state)
+
+  def testSkipGradientsRejectsInnerStateThatGainsLeaves(self):
+    tx = _magnitude_updater(skip_gradients=True).wrap_optax(
+        _transient_optimizer(grow=True)
+    )
+    state = tx.init(self.params)
+    with self.assertRaisesRegex(ValueError, 'skip_gradients=True needs'):
+      tx.update(self.grads, state, self.params)
 
 
 if __name__ == '__main__':

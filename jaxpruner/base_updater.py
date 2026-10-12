@@ -60,6 +60,37 @@ def apply_mask(param, mask, is_packed=False):
     return param * unpacked_mask
 
 
+def _select_inner_state(keep_old, old_state, new_state):
+  """Returns `old_state` where `keep_old` is true, else `new_state`.
+
+  The result always has the pytree structure of `new_state`, so this works for
+  optimizers whose `update` clears fields that were set since the last update.
+  Leaves that only exist in `old_state` are dropped.
+
+  Args:
+    keep_old: A boolean scalar, possibly traced.
+    old_state: The inner optimizer state before `inner.update`.
+    new_state: The inner optimizer state returned by `inner.update`.
+
+  Returns:
+    A state with the structure of `new_state`.
+  Raises:
+    ValueError: If `new_state` has a leaf that `old_state` does not have.
+  """
+  old_leaves = dict(jax.tree_util.tree_flatten_with_path(old_state)[0])
+  new_leaves, treedef = jax.tree_util.tree_flatten_with_path(new_state)
+  selected = []
+  for path, new_leaf in new_leaves:
+    if path not in old_leaves:
+      raise ValueError(
+          'skip_gradients=True needs every leaf of the updated inner optimizer'
+          ' state to exist in the state before the update, but'
+          f' {jax.tree_util.keystr(path)} is new.'
+      )
+    selected.append(jnp.where(keep_old, old_leaves[path], new_leaf))
+  return jax.tree_util.tree_unflatten(treedef, selected)
+
+
 @dataclasses.dataclass
 class BaseUpdater(object):
   """Implements base class and the common update schedule."""
@@ -250,22 +281,20 @@ class BaseUpdater(object):
       else:
         new_updates = updates
 
-      should_skip_inner = jnp.logical_and(is_update_step, self.skip_gradients)
-
-      def no_inner_update(updates, inner_state, params):
-        # Set gradients to zero and don't update the step.
-        del params
-        zero_updates = jax.tree.map(jnp.zeros_like, updates)
-        return zero_updates, inner_state
-
-      new_updates, new_inner_state = jax.lax.cond(
-          should_skip_inner,
-          no_inner_update,
-          inner.update,
-          new_updates,
-          new_state.inner_state,
-          params,
+      new_updates, new_inner_state = inner.update(
+          new_updates, new_state.inner_state, params
       )
+      if self.skip_gradients:
+        # On mask update steps, set gradients to zero and don't update the
+        # step. This selects leaf by leaf instead of using `lax.cond`, because
+        # `inner.update` may return a state with a different pytree structure.
+        new_updates = jax.tree.map(
+            lambda u: jnp.where(is_update_step, jnp.zeros_like(u), u),
+            new_updates,
+        )
+        new_inner_state = _select_inner_state(
+            is_update_step, new_state.inner_state, new_inner_state
+        )
       new_state = new_state._replace(
           count=optax.safe_int32_increment(new_state.count),
           inner_state=new_inner_state,
