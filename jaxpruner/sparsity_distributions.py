@@ -25,8 +25,8 @@ import logging
 from typing import Callable, Mapping, Optional, Union, Tuple
 
 import chex
-import flax
 import jax
+from jaxpruner import tree_paths
 import numpy as np
 
 FilterFnType = Callable[[Tuple[str], chex.Array], bool]
@@ -53,8 +53,9 @@ def uniform(
       == 'kernel'.
     custom_sparsity_map: A dictionary with keys corresponding to the flattened
       keys of parameters (leaves) in a tree. This is to assign specific sparsity
-      to given variables. Keys should match corresponding values at
-      `flax.traverse_util.flatten_dict(param_tree)`.
+      to given variables. Keys are the leaf names given by
+      `jaxpruner.tree_paths.flatten_with_names(param_tree)`: tuples of dict
+      keys, attribute names and sequence indices, e.g. `('dense', 'kernel')`.
 
   Returns:
     sparsity_tree: same shape as param_tree with float or None leaves.
@@ -72,17 +73,7 @@ def uniform(
   if isinstance(params, chex.Array):
     return _get_sparsity(('kernel',), params)
 
-  elif isinstance(params, list):
-    return jax.tree.map(lambda p: _get_sparsity('', p), params)
-
-  flat_dict = flax.traverse_util.flatten_dict(params)
-  res_dict = {}
-  for k, p in flat_dict.items():
-    res_dict[k] = _get_sparsity(k, p)
-
-  return_val = flax.traverse_util.unflatten_dict(res_dict)
-  if isinstance(params, flax.core.frozen_dict.FrozenDict):
-    return_val = flax.core.freeze(return_val)
+  return_val = tree_paths.map_with_names(_get_sparsity, params)
   logging.info('Sparsities %s', return_val)
   return return_val
 
@@ -115,22 +106,15 @@ def erk(
         'Single parameter is provided. Please provide a paramater tree.'
     )
 
-  flat_dict = flax.traverse_util.flatten_dict(param_tree)
-  filtered_shape_dict = {
-      k: p.shape for k, p in flat_dict.items() if filter_fn(k, p)
-  }
+  named_params, treedef = tree_paths.flatten_with_names(param_tree)
+  filtered_shape_dict = {k: p.shape for k, p in named_params if filter_fn(k, p)}
 
   sparsities = get_sparsities_erdos_renyi(
       filtered_shape_dict, sparsity, custom_sparsity_map
   )
-  res_dict = {
-      k: sparsities[k] if k in sparsities else None
-      for k, p in flat_dict.items()
-  }
-  return_val = flax.traverse_util.unflatten_dict(res_dict)
-  if isinstance(param_tree, flax.core.frozen_dict.FrozenDict):
-    return_val = flax.core.freeze(return_val)
-  return return_val
+  return jax.tree_util.tree_unflatten(
+      treedef, [sparsities.get(k) for k, _ in named_params]
+  )
 
 
 def get_n_zeros(size, sparsity):

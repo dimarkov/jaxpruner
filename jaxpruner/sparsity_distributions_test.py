@@ -16,7 +16,9 @@
 """Tests for utility functions in sparsity_distributions.py."""
 from absl.testing import absltest
 from absl.testing import parameterized
+import equinox as eqx
 import flax
+import jax
 import jax.numpy as jnp
 from jaxpruner import sparsity_distributions
 import numpy as np
@@ -178,6 +180,50 @@ class SparsityDistributionTest(parameterized.TestCase, absltest.TestCase):
     self.assertEqual(result['a'], 0.7)
     # Custom map didn't add a new variable not in var_shape_dict.
     self.assertNotIn('c', result)
+
+  def testUniformOnEquinoxModule(self):
+    mlp = eqx.nn.MLP(4, 2, 8, 1, key=jax.random.PRNGKey(0))
+    params = eqx.filter(mlp, eqx.is_inexact_array)
+    result = sparsity_distributions.uniform(
+        params, 0.8, custom_sparsity_map={('layers', 1, 'weight'): 0.3}
+    )
+    self.assertEqual(result.layers[0].weight, 0.8)
+    self.assertEqual(result.layers[1].weight, 0.3)
+    self.assertIsNone(result.layers[0].bias)
+    self.assertIsNone(result.layers[1].bias)
+
+  def testERKOnEquinoxModuleMatchesEquivalentDict(self):
+    mlp = eqx.nn.MLP(4, 2, 8, 1, key=jax.random.PRNGKey(0))
+    params = eqx.filter(mlp, eqx.is_inexact_array)
+    as_dict = {
+        'l0': {'weight': params.layers[0].weight, 'bias': params.layers[0].bias},
+        'l1': {'weight': params.layers[1].weight, 'bias': params.layers[1].bias},
+    }
+    result = sparsity_distributions.erk(params, 0.8)
+    expected = sparsity_distributions.erk(as_dict, 0.8)
+    self.assertEqual(result.layers[0].weight, expected['l0']['weight'])
+    self.assertEqual(result.layers[1].weight, expected['l1']['weight'])
+    self.assertIsNone(result.layers[0].bias)
+    self.assertIsNone(result.layers[1].bias)
+
+  def testERKHonoursFilterFnOnSequences(self):
+    tree = [np.zeros((4, 8)), np.zeros((8, 16)), np.zeros((16,))]
+    result = sparsity_distributions.erk(
+        tree, 0.5, filter_fn=lambda name, p: name != (1,) and p.ndim > 1
+    )
+    self.assertEqual(result, [0.5, None, None])
+
+  @parameterized.parameters(
+      sparsity_distributions.uniform, sparsity_distributions.erk
+  )
+  def testFrozenDictAndNoneLeavesArePreserved(self, distribution_fn):
+    tree = flax.core.freeze({'a': np.zeros((4, 8)), 'b': np.zeros((8,))})
+    result = distribution_fn(tree, 0.5)
+    self.assertIsInstance(result, flax.core.FrozenDict)
+    self.assertEqual(dict(result), {'a': 0.5, 'b': None})
+
+    tree = {'a': np.zeros((4, 8)), 'b': None}
+    self.assertEqual(distribution_fn(tree, 0.5), {'a': 0.5, 'b': None})
 
 
 if __name__ == '__main__':
