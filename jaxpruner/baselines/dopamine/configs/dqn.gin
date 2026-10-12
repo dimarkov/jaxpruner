@@ -5,7 +5,7 @@ import dopamine.discrete_domains.atari_lib
 import dopamine.discrete_domains.run_experiment
 import dopamine.jax.agents.dqn.dqn_agent
 import dopamine.jax.networks
-import dopamine.replay_memory.circular_replay_buffer
+import dopamine.jax.replay_memory.replay_buffer
 import jaxpruner.baselines.dopamine.sparse_util
 
 JaxDQNAgent.network=@networks.NatureDQNNetwork # CNN encoder
@@ -49,5 +49,5 @@ create_updater_from_config.update_freq=1000
 # create_updater_from_config.drop_fracion=0.3
 create_updater_from_config.sparsity=0.98
 
-OutOfGraphReplayBuffer.replay_capacity = 1000000
-OutOfGraphReplayBuffer.batch_size = 32
+ReplayBuffer.max_capacity = 1000000
+ReplayBuffer.batch_size = 32
