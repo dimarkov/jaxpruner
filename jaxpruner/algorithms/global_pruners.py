@@ -62,9 +62,10 @@ class GlobalPruningMixin:
     # global ordering of scores.
     scores = self.calculate_scores(params, grads=grads, **kwargs)
     masks = self.create_masks(scores, self.sparsity)
+    masked_params = self.apply_masks(params, masks, is_packed=False)
     if self.use_packed_masks:
       masks = jax.tree.map(jnp.packbits, masks)
-    return self.apply_masks(params, masks, is_packed=False), masks
+    return masked_params, masks
 
   def create_masks(self, scores, target_sparsity):
     """Creates masks using global ordering."""
