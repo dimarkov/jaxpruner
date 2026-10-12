@@ -21,6 +21,7 @@ import jax
 import jax.numpy as jnp
 from jaxpruner import mask_calculator
 from jaxpruner import sparsity_types
+import numpy as np
 
 
 SCORE_1 = [
@@ -312,6 +313,61 @@ class MaskCalculatorTest(parameterized.TestCase, absltest.TestCase):
             topk_fn_in_jit(jnp.array(score), sparsity),
             jnp.array(expected_mask),
         )
+    )
+
+
+def _reference_block_mask(
+    scores, block_height, block_width, use_avg_pooling, sparsity
+):
+  """Ranks the real, possibly partial, blocks with NumPy and keeps the top ones."""
+  matrix = scores.reshape(1, -1) if scores.ndim == 1 else scores
+  block_scores = []
+  regions = []
+  for row in range(0, matrix.shape[0], block_height):
+    for col in range(0, matrix.shape[1], block_width):
+      region = (slice(row, row + block_height), slice(col, col + block_width))
+      values = matrix[region]
+      block_scores.append(values.mean() if use_avg_pooling else values.max())
+      regions.append(region)
+  num_kept = max(1, round(len(regions) * (1 - sparsity)))
+  kept = np.argsort(-np.array(block_scores), kind='stable')[:num_kept]
+  mask = np.zeros(matrix.shape, dtype=np.uint8)
+  for index in kept:
+    mask[regions[index]] = 1
+  return mask.reshape(scores.shape)
+
+
+class BlockMaskPartialBlocksTest(parameterized.TestCase, absltest.TestCase):
+
+  @parameterized.product(
+      shapes=[
+          ((5, 5), (4, 4)),
+          ((7, 4), (3, 2)),
+          ((4, 7), (2, 3)),
+          ((3, 2), (4, 4)),
+          ((8, 6), (4, 3)),
+          ((5, 5, 2, 3), (4, 4)),
+          ((5,), (1, 4)),
+          ((5,), (4, 4)),
+      ],
+      use_avg_pooling=[False, True],
+  )
+  def testMaskCoversPartialBlocks(self, shapes, use_avg_pooling):
+    scores_shape, (block_height, block_width) = shapes
+    size = int(np.prod(scores_shape))
+    # Distinct negative scores: padding must neither win a max nor dilute a mean.
+    scores = (np.arange(size, dtype=np.float32) - size).reshape(scores_shape)
+    topk_fn = mask_calculator.get_topk_fn(
+        sparsity_types.Block((block_height, block_width), use_avg_pooling)
+    )
+    mask = topk_fn(jnp.asarray(scores), 0.5)
+    self.assertEqual(mask.shape, scores_shape)
+    self.assertEqual(mask.dtype, jnp.uint8)
+    np.testing.assert_array_equal(
+        mask,
+        _reference_block_mask(
+            scores, block_height, block_width, use_avg_pooling, 0.5
+        ),
     )
 
 
