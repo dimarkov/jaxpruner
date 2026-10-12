@@ -202,7 +202,7 @@ def train(
           classification_trainer.train_step,
           flax_model=model.flax_model,
           loss_fn=model.loss_function,
-          lr_fn=lr_fn,
+          lr_fns={'learning_rate': lr_fn},
           metrics_fn=model.get_metrics_fn('train'),
           updater=updater,
           config=config,

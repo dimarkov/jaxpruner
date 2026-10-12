@@ -25,7 +25,6 @@ from jaxpruner.baselines.scenic import classification_trainer
 import ml_collections
 from scenic import app
 from scenic.model_lib import models
-from scenic.projects.baselines.plainvit import plainvit
 from scenic.train_lib import train_utils
 
 
@@ -40,6 +39,10 @@ def main(
 ):
   """Main function for Scenic."""
   if config.model_name == 'plainvit':
+    # Imported here because the scenic package that pip builds leaves this
+    # directory out (it has no __init__.py); the other models do not need it.
+    from scenic.projects.baselines.plainvit import plainvit  # pylint: disable=g-import-not-at-top
+
     model_cls = plainvit.PlainViT
   else:
     model_cls = models.get_model_cls(config.model_name)
