@@ -78,6 +78,10 @@ _UPDATE_START_STEP = flags.DEFINE_integer(
 
 _RANDOM_SEED = flags.DEFINE_integer('random_seed', 0, 'Random seed.')
 
+_NUM_ROUNDS = flags.DEFINE_integer(
+    'num_rounds', 1000, 'Number of federated training rounds.'
+)
+
 _WORKDIR = flags.DEFINE_string(
     'workdir',
     '/tmp/jaxpruner/fedjax',
@@ -141,7 +145,17 @@ def federated_averaging(
       client_diagnostics[client_id] = {
           'delta_l2_norm': fedjax.tree_util.tree_l2_norm(delta_params)
       }
-    mean_delta_params = fedjax.tree_util.tree_mean(client_delta_params_weights)
+    # The weighted mean is computed here and not with
+    # fedjax.tree_util.tree_mean: in the fedjax 0.0.17 release that helper
+    # calls jax.tree_map, which current JAX no longer has.
+    total_weight = float(sum(w for _, w in client_delta_params_weights))
+    mean_delta_params = jax.tree_util.tree_map(
+        lambda *leaves: sum(
+            leaf * (w / total_weight)
+            for leaf, (_, w) in zip(leaves, client_delta_params_weights)
+        ),
+        *[delta for delta, _ in client_delta_params_weights],
+    )
     server_state = server_update(server_state, mean_delta_params)
     return server_state, client_diagnostics
 
@@ -316,7 +330,7 @@ def train(
       )
   }
   metrics_logger.log(final_metrics, round_num=round_num + 1)
-  with gfile.Open(workdir + '/metrics.csv', 'w') as f:
+  with gfile.GFile(workdir + '/metrics.csv', 'w') as f:
     csv_writer = csv.writer(f, delimiter=',')
     metrics_to_save = list(final_metrics['final'].items()) + list(
         metrics['sparsity'].items()
@@ -342,7 +356,7 @@ def main(argv):
   config.sparsity_config.sparsity = _SPARSITY.value
 
   config.num_clients = 50
-  config.num_rounds = 1000
+  config.num_rounds = _NUM_ROUNDS.value
   config.train_batch_size = 32
   config.eval_batch_size = 64
   config.random_seed = _RANDOM_SEED.value
@@ -359,9 +373,7 @@ def main(argv):
   # Uses cpu only for data loading to save GPU/TPU memory
   fedjax.training.set_tf_cpu_only()
   # Load train and test federated data for EMNIST.
-  train_fd, test_fd = fedjax.datasets.emnist.load_data(
-      only_digits=False, mode='tff_sstable'
-  )
+  train_fd, test_fd = fedjax.datasets.emnist.load_data(only_digits=False)
 
   # Create CNN model with dropout.
   model = fedjax.models.emnist.create_conv_model(only_digits=False)
@@ -370,7 +382,7 @@ def main(argv):
   workdir = _WORKDIR.value
   if _EXPERIMENT_NAME.value is not None:
     workdir = os.path.join(workdir, _EXPERIMENT_NAME.value)
-  gfile.MakeDirs(workdir)
+  gfile.makedirs(workdir)
   metrics_logger = _MetricsLogger(workdir)
 
   train(config, model, train_fd, test_fd, metrics_logger, workdir)
