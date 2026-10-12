@@ -14,12 +14,24 @@
 # limitations under the License.
 
 """Tests for global pruning algorithms."""
+import dataclasses
+
 from absl.testing import absltest
 from absl.testing import parameterized
 
 import chex
+import jax
 import jax.numpy as jnp
 from jaxpruner.algorithms import global_pruners
+
+
+@dataclasses.dataclass
+class _ScaledMagnitude(global_pruners.GlobalMagnitudePruning):
+  """Magnitude scores multiplied by a `scale` tree passed as extra argument."""
+
+  def calculate_scores(self, params, sparse_state=None, grads=None, scale=None):
+    del sparse_state, grads
+    return jax.tree.map(lambda p, s: jnp.abs(p) * s, params, scale)
 
 
 class GlobalPrunerTest(parameterized.TestCase, absltest.TestCase):
@@ -45,6 +57,18 @@ class GlobalPrunerTest(parameterized.TestCase, absltest.TestCase):
 
     chex.assert_trees_all_close(
         updater.create_masks(score_tree, target_sparsity=0.5), expected_tree
+    )
+
+  def testInstantSparsifyForwardsExtraArguments(self):
+    updater = _ScaledMagnitude(
+        filter_fn=lambda *_: True, sparsity=0.5, use_normalization=False
+    )
+    params = {'w': jnp.array([1.0, 2.0, 3.0, 4.0])}
+    scale = {'w': jnp.array([10.0, 10.0, 0.1, 0.1])}
+    pruned_params, masks = updater.instant_sparsify(params, scale=scale)
+    chex.assert_trees_all_close(masks, {'w': jnp.array([1, 1, 0, 0])})
+    chex.assert_trees_all_close(
+        pruned_params, {'w': jnp.array([1.0, 2.0, 0.0, 0.0])}
     )
 
 

@@ -57,11 +57,11 @@ class GlobalPruningMixin:
     )
 
   def instant_sparsify(
-      self, params, grads = None
+      self, params, grads = None, **kwargs
   ):
     # Global sparsity doesn't require sparsity distribution as it uses
     # global ordering of scores.
-    scores = self.calculate_scores(params, grads=grads)
+    scores = self.calculate_scores(params, grads=grads, **kwargs)
     masks = self.create_masks(scores, self.sparsity)
     if self.use_packed_masks:
       masks = jax.tree.map(jnp.packbits, masks)
