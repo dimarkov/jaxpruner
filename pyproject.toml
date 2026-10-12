@@ -19,7 +19,6 @@ classifiers = [
 ]
 dependencies = [
     "chex",
-    "flax",
     "jax",
     "ml-collections",
     "numpy",
@@ -27,8 +26,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["absl-py", "equinox", "pytest"]
-notebooks = ["ipykernel", "matplotlib", "nbconvert", "pandas", "scipy"]
+test = ["absl-py", "equinox", "flax", "pytest"]
+notebooks = ["flax", "ipykernel", "matplotlib", "nbconvert", "pandas", "scipy"]
 
 [project.urls]
 Homepage = "https://github.com/google-research/jaxpruner"

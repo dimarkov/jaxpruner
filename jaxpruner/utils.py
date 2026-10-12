@@ -17,9 +17,17 @@
 from typing import Dict
 
 import chex
-import flax
 import jax
 import jax.numpy as jnp
+from jaxpruner import tree_paths
+
+
+def _named_leaves(tree):
+  """Returns a dict from '/'-joined leaf names to leaves, keeping None leaves."""
+  named_leaves, _ = tree_paths.flatten_with_names(
+      tree, is_leaf=lambda x: x is None
+  )
+  return {'/'.join(str(part) for part in k): leaf for k, leaf in named_leaves}
 
 
 def summarize_sparsity(
@@ -46,10 +54,7 @@ def summarize_sparsity(
     summary_dict = {}
   else:
     sparsities = jax.tree.map(sparsity_fn, non_zeros, sizes)
-    if isinstance(sparsities, list):
-      summary_dict = dict([(str(k), v) for (k, v) in enumerate(sparsities)])
-    else:
-      summary_dict = flax.traverse_util.flatten_dict(sparsities, sep='/')
+    summary_dict = _named_leaves(sparsities)
   total_sparsity = sparsity_fn(
       sum(jax.tree_util.tree_leaves(non_zeros)),
       sum(jax.tree_util.tree_leaves(sizes)),
@@ -98,14 +103,7 @@ def summarize_intersection(
     summary_dict = {}
   else:
     relative_intersections = jax.tree.map(_safe_division, intersections, ones)
-    if isinstance(mask_tree1, list):
-      summary_dict = dict(
-          [(str(k), v) for (k, v) in enumerate(relative_intersections)]
-      )
-    else:
-      summary_dict = flax.traverse_util.flatten_dict(
-          relative_intersections, sep='/'
-      )
+    summary_dict = _named_leaves(relative_intersections)
 
   total_intersection = _safe_division(
       sum(jax.tree_util.tree_leaves(intersections)),

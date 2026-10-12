@@ -14,10 +14,17 @@
 # limitations under the License.
 
 """Tests for utility functions in utils.py."""
+from typing import Any, NamedTuple
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax.numpy as jnp
 from jaxpruner import utils
+
+
+class _Pair(NamedTuple):
+  first: Any
+  second: Any
 
 
 class UtilsTest(parameterized.TestCase, absltest.TestCase):
@@ -91,6 +98,42 @@ class UtilsTest(parameterized.TestCase, absltest.TestCase):
         ),
         expected_summary,
     )
+
+  def testSummariesOnNonDictTrees(self):
+    tree = _Pair(first=jnp.array([1.0, 0.0]), second=[jnp.zeros([4]), None])
+    summary = utils.summarize_sparsity(tree)
+    self.assertEqual(
+        set(summary),
+        {
+            'first',
+            'second/0',
+            'second/1',
+            '_total_sparsity',
+            '_nparams',
+            '_nparams_nnz',
+        },
+    )
+    self.assertEqual(summary['first'], 0.5)
+    self.assertEqual(summary['second/0'], 1.0)
+    self.assertIsNone(summary['second/1'])
+    self.assertAlmostEqual(float(summary['_total_sparsity']), 5 / 6)
+
+    masks = _Pair(first=jnp.array([1, 1, 0, 0]), second=[jnp.array([1, 0]), None])
+    other = _Pair(first=jnp.array([1, 0, 1, 0]), second=[jnp.array([1, 0]), None])
+    summary = utils.summarize_intersection(masks, other)
+    self.assertEqual(summary['first'], 0.5)
+    self.assertEqual(summary['second/0'], 1.0)
+    self.assertIsNone(summary['second/1'])
+
+  def testSummaryOfListUsesIndices(self):
+    summary = utils.summarize_sparsity([jnp.ones([2]), jnp.zeros([2])])
+    self.assertEqual(summary['0'], 0.0)
+    self.assertEqual(summary['1'], 1.0)
+
+  def testSummaryOfSingleArray(self):
+    summary = utils.summarize_sparsity(jnp.array([1.0, 0.0, 0.0, 0.0]))
+    self.assertEqual(summary['_total_sparsity'], 0.75)
+    self.assertEqual(summary['_nparams'], 4.0)
 
 
 if __name__ == '__main__':
