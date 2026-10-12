@@ -48,6 +48,8 @@ pip3 install git+https://github.com/dimarkov/jaxpruner
 
 This is a fork of [google-research/jaxpruner](https://github.com/google-research/jaxpruner) kept working on current JAX. It needs Python 3.12 or newer.
 
+This install contains the core library only, the packages `jaxpruner` and `jaxpruner.algorithms`. The code under `jaxpruner/baselines` and `jaxpruner/projects` (the baselines and `projects/extensions`) is not in it, and importing it raises `ModuleNotFoundError`; to use it, clone the repository and run `pip install -e .` in the clone.
+
 Alternatively you can also clone the source and run tests using the run.sh script.
 
 ```bash
@@ -63,7 +65,7 @@ bash run.sh
 
 ## Status of this fork
 
-The test suite (`pytest`, 176 tests) passes with:
+The test suite (`pytest`, 179 tests) passes with:
 
 | Python | jax | optax | chex | flax | numpy | equinox |
 |---|---|---|---|---|---|---|
@@ -104,6 +106,22 @@ Changes relative to upstream:
 - Packaging moved to `pyproject.toml`; Python 3.12 or newer is required and
   `flax` is only needed for the tests, the notebooks and the scenic and t5x
   baselines.
+
+Changes of behaviour for code written against upstream (nested dicts with
+string keys keep their leaf names and values):
+
+- `sparsity_distributions.uniform` on a list or tuple of arrays passes
+  `(index,)` as the leaf name to `filter_fn` and `custom_sparsity_map`, where
+  upstream passed `''` for every leaf. A map keyed by `''` no longer matches
+  anything, without an error.
+- `summarize_sparsity` and `summarize_intersection` on a list of containers
+  return one entry per leaf, with keys such as `'0/a'`, where upstream returned
+  the keys `'0'`, `'1'`, each holding a sub-tree.
+- The dicts returned by `uniform` and `erk` iterate in sorted-key order, where
+  upstream kept the insertion order of the input. They are equal as PyTrees.
+- `uniform` rejects a dict whose keys have mixed types, e.g.
+  `{0: ..., 'a': ...}`, with JAX's `ValueError` about sorting dictionary keys;
+  upstream accepted it.
 
 ## Quickstart
 See our Quickstart colab:
