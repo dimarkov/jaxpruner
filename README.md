@@ -110,7 +110,7 @@ Changes relative to upstream:
 Changes of behaviour for code written against upstream (nested dicts with
 string keys keep their leaf names and values):
 
-- `sparsity_distributions.uniform` on a list or tuple of arrays passes
+- `sparsity_distributions.uniform` on a list of arrays passes
   `(index,)` as the leaf name to `filter_fn` and `custom_sparsity_map`, where
   upstream passed `''` for every leaf. A map keyed by `''` no longer matches
   anything, without an error.
@@ -119,15 +119,15 @@ string keys keep their leaf names and values):
   the keys `'0'`, `'1'`, each holding a sub-tree.
 - The dicts returned by `uniform` and `erk` iterate in sorted-key order, where
   upstream kept the insertion order of the input. They are equal as PyTrees.
-- `uniform` rejects a dict whose keys have mixed types, e.g.
+- `uniform` and `erk` reject a dict whose keys have mixed types, e.g.
   `{0: ..., 'a': ...}`, with JAX's `ValueError` about sorting dictionary keys;
   upstream accepted it.
 
 ## Quickstart
 See our Quickstart colab:
-[![Quick Start Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/jaxpruner/blob/main/colabs/quick_start.ipynb)
+[![Quick Start Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dimarkov/jaxpruner/blob/main/colabs/quick_start.ipynb)
 
-We also have [Deep-Dive](https://colab.research.google.com/github/google-research/jaxpruner/blob/main/colabs/deep_dive.ipynb) and [Mnist Pruning](https://colab.research.google.com/github/google-research/jaxpruner/blob/main/colabs/mnist_pruning.ipynb) colabs.
+We also have [Deep-Dive](https://colab.research.google.com/github/dimarkov/jaxpruner/blob/main/colabs/deep_dive.ipynb) and [Mnist Pruning](https://colab.research.google.com/github/dimarkov/jaxpruner/blob/main/colabs/mnist_pruning.ipynb) colabs.
 
 ## Baselines
 Here we share our initial experiments with baselines implemented.

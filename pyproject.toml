@@ -30,7 +30,7 @@ test = ["absl-py", "equinox", "flax", "pytest"]
 notebooks = ["flax", "ipykernel", "matplotlib", "nbconvert", "pandas", "scipy"]
 
 [project.urls]
-Homepage = "https://github.com/google-research/jaxpruner"
+Homepage = "https://github.com/dimarkov/jaxpruner"
 
 [tool.setuptools.packages.find]
 include = ["jaxpruner*"]
